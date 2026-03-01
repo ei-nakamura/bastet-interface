@@ -1,4 +1,8 @@
-"""Tests for Document AI integration in bastet-inference."""
+"""bastet-inferenceのDocument AI統合に関するテスト群。
+
+main.pyの各内部関数およびエントリポイントを単体テストで検証する。
+外部依存（Vertex AI、Document AI API）はすべてMockで代替する。
+"""
 
 import base64
 import json
@@ -10,7 +14,13 @@ import pytest
 # ---------- _extract_image_from_messages ----------
 
 class TestExtractImageFromMessages:
+    """_extract_image_from_messages 関数のテスト。
+
+    NormalizedMessage[] から画像ブロックを正しく抽出できることを検証する。
+    """
+
     def test_extracts_first_image(self):
+        """単一の画像ブロックからバイト列とMIMEタイプを正しく取り出せること。"""
         from main import _extract_image_from_messages
 
         img_data = base64.b64encode(b"fake-image-bytes").decode()
@@ -25,6 +35,7 @@ class TestExtractImageFromMessages:
         assert mime_type == "image/png"
 
     def test_raises_when_no_image(self):
+        """画像ブロックが存在しない場合にValueErrorを送出すること。"""
         from main import _extract_image_from_messages
 
         messages = [{
@@ -35,6 +46,7 @@ class TestExtractImageFromMessages:
             _extract_image_from_messages(messages)
 
     def test_extracts_from_multiple_blocks(self):
+        """テキストブロックと画像ブロックが混在する場合に最初の画像を取り出せること。"""
         from main import _extract_image_from_messages
 
         img_data = base64.b64encode(b"image-data").decode()
@@ -53,8 +65,18 @@ class TestExtractImageFromMessages:
 # ---------- _build_text_blocks_from_ocr ----------
 
 class TestBuildTextBlocksFromOcr:
+    """_build_text_blocks_from_ocr 関数のテスト。
+
+    Document AIが返すDocumentオブジェクト（Mock）をtext_blocks形式に
+    正しく変換できることを検証する。
+    """
+
     def _make_document(self, paragraphs):
-        """Build a mock Document AI Document with given paragraph specs."""
+        """テスト用のDocument AIドキュメントMockを生成するヘルパー。
+
+        paragraphsは (テキスト, [(x, y), ...], 信頼度) のリスト。
+        document.textには各テキストを連結し、text_anchorで参照できるようにする。
+        """
         doc = MagicMock()
         doc.text = ""
 
@@ -71,6 +93,7 @@ class TestBuildTextBlocksFromOcr:
             layout.text_anchor.text_segments = [seg]
             layout.confidence = confidence
 
+            # バウンディングボックスの頂点をMockで構築
             mock_vertices = []
             for x, y in vertices:
                 v = MagicMock()
@@ -89,6 +112,7 @@ class TestBuildTextBlocksFromOcr:
         return doc
 
     def test_basic_conversion(self):
+        """1段落を正しくtext_block形式に変換できること（id, content, bbox, confidenceを検証）。"""
         from main import _build_text_blocks_from_ocr
 
         doc = self._make_document([
@@ -106,6 +130,7 @@ class TestBuildTextBlocksFromOcr:
         assert blocks[0]["confidence"] == pytest.approx(0.95, abs=1e-3)
 
     def test_skips_empty_text(self):
+        """空白のみの段落はスキップされ、結果リストに含まれないこと。"""
         from main import _build_text_blocks_from_ocr
 
         doc = self._make_document([
@@ -115,6 +140,7 @@ class TestBuildTextBlocksFromOcr:
         assert len(blocks) == 0
 
     def test_multiple_paragraphs_sequential_ids(self):
+        """複数の段落が連番IDで順番に変換されること。"""
         from main import _build_text_blocks_from_ocr
 
         doc = self._make_document([
@@ -133,10 +159,21 @@ class TestBuildTextBlocksFromOcr:
 # ---------- _translate_blocks ----------
 
 class TestTranslateBlocks:
+    """_translate_blocks 関数のテスト。
+
+    LLMによるブロック翻訳とタイプ分類が正しく行われること、
+    およびエラー時のフォールバック動作を検証する。
+    """
+
     @patch("main._call_vertex_claude")
     def test_translates_with_claude(self, mock_claude):
+        """Claudeモデルを使って翻訳・タイプ分類が正しく実行されること。
+
+        モックが一度だけ呼ばれ、翻訳結果とタイプがブロックに反映されることを確認する。
+        """
         from main import _translate_blocks
 
+        # モックがClaudeの正常レスポンスを返すよう設定
         mock_claude.return_value = (
             {"text": json.dumps({"results": [
                 {"id": 1, "type": "title", "translation": "翻訳テスト"},
@@ -153,8 +190,13 @@ class TestTranslateBlocks:
 
     @patch("main._call_vertex_gemini")
     def test_translates_with_gemini(self, mock_gemini):
+        """Geminiモデルを使って翻訳が正しく実行されること。
+
+        モデル名が"gemini"で始まる場合にGeminiハンドラが選択されることを確認する。
+        """
         from main import _translate_blocks
 
+        # モックがGeminiの正常レスポンスを返すよう設定
         mock_gemini.return_value = (
             {"text": json.dumps({"results": [
                 {"id": 1, "type": "paragraph", "translation": "Translated"},
@@ -170,33 +212,51 @@ class TestTranslateBlocks:
 
     @patch("main._call_vertex_claude")
     def test_fallback_on_llm_error(self, mock_claude):
+        """LLMエラー時に元テキストをtranslationとして返すフォールバック動作。
+
+        HTTP 500エラーが返った場合、翻訳なしで元コンテンツをそのまま返すことを確認する。
+        """
         from main import _translate_blocks
 
+        # モックがエラーレスポンスを返すよう設定
         mock_claude.return_value = ({"error": "Server error"}, 500)
 
         blocks = [{"id": 1, "content": "Original", "bbox": {"x": 0, "y": 0, "w": 1, "h": 0.1}, "confidence": 0.9}]
         result = _translate_blocks(blocks, "claude-sonnet-4-20250514", "日本語")
 
-        # Should fall back to original text
+        # 元テキストがそのままtranslationにフォールバックされることを検証
         assert result[0]["type"] == "paragraph"
         assert result[0]["translation"] == "Original"
 
     def test_empty_blocks(self):
+        """空のブロックリストを渡した場合は空リストをそのまま返すこと。"""
         from main import _translate_blocks
 
         result = _translate_blocks([], "claude-sonnet-4-20250514", "日本語")
         assert result == []
 
 
-# ---------- _call_document_ai (integration) ----------
+# ---------- _call_document_ai (統合テスト) ----------
 
 class TestCallDocumentAi:
+    """_call_document_ai 関数の統合テスト。
+
+    OCR → テキストブロック変換 → LLM翻訳の全フローが正しく動作することを検証する。
+    各ステップはモックで代替し、連携と最終レスポンス形式を確認する。
+    """
+
     @patch("main._translate_blocks")
     @patch("main._build_text_blocks_from_ocr")
     @patch("main._ocr_with_document_ai")
     def test_full_flow_success(self, mock_ocr, mock_build, mock_translate):
+        """OCR → 変換 → 翻訳の正常系フロー全体が正しく動作すること。
+
+        最終レスポンスがClaude Vision互換のtext_blocks形式で返ること、
+        翻訳結果が正しくマージされていることを確認する。
+        """
         from main import _call_document_ai
 
+        # 各ステップのモックを正常応答に設定
         mock_ocr.return_value = MagicMock()
         mock_build.return_value = [
             {"id": 1, "content": "Hello", "bbox": {"x": 0.1, "y": 0.2, "w": 0.8, "h": 0.1}, "confidence": 0.95},
@@ -220,6 +280,7 @@ class TestCallDocumentAi:
         assert result["stop_reason"] == "end_turn"
 
     def test_no_image_returns_400(self):
+        """画像なしのリクエストに対してHTTP 400エラーが返ること。"""
         from main import _call_document_ai
 
         messages = [{"role": "user", "content": [{"type": "text", "text": "no image"}]}]
@@ -230,8 +291,14 @@ class TestCallDocumentAi:
 
     @patch("main._ocr_with_document_ai")
     def test_empty_ocr_result(self, mock_ocr):
+        """OCR結果が空の場合にtext_blocksが空リストで返ること。
+
+        段落が存在しないドキュメントを処理したとき、
+        HTTP 200かつ空のtext_blocksが返ることを確認する。
+        """
         from main import _call_document_ai
 
+        # 段落なしのドキュメントMockを設定
         mock_doc = MagicMock()
         mock_doc.pages = [MagicMock()]
         mock_doc.pages[0].paragraphs = []
@@ -242,7 +309,7 @@ class TestCallDocumentAi:
             {"type": "image", "mediaType": "image/png", "base64Data": img_data},
         ]}]
 
-        # Need to also patch _build_text_blocks_from_ocr to return empty
+        # _build_text_blocks_from_ocrも空を返すようパッチ
         with patch("main._build_text_blocks_from_ocr", return_value=[]):
             result, status = _call_document_ai(messages, "claude-sonnet-4-20250514", "日本語")
 
@@ -251,13 +318,23 @@ class TestCallDocumentAi:
         assert parsed["text_blocks"] == []
 
 
-# ---------- Entry point dispatch ----------
+# ---------- エントリポイントのルーティング ----------
 
 class TestEntryDispatchesDocumentAi:
+    """inferenceエントリポイントのdocument-aiプロバイダルーティングテスト。
+
+    document-aiプロバイダが指定されたとき、_call_document_aiに正しくディスパッチされることを検証する。
+    """
+
     @patch("main._call_document_ai")
     def test_provider_document_ai_dispatches(self, mock_docai):
+        """provider="document-ai"のリクエストが_call_document_aiに正しく転送されること。
+
+        target_langパラメータが正しくハンドラに渡されることも確認する。
+        """
         from main import inference
 
+        # モックが成功レスポンスを返すよう設定
         mock_docai.return_value = (
             {"text": '{"text_blocks": []}', "stop_reason": "end_turn"},
             200,
@@ -276,6 +353,7 @@ class TestEntryDispatchesDocumentAi:
         }
 
         response = inference(request)
+        # _call_document_aiが正しい引数で呼ばれたことを検証
         mock_docai.assert_called_once_with(
             request.get_json.return_value["messages"],
             "claude-sonnet-4-20250514",

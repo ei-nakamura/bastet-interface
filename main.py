@@ -1,9 +1,9 @@
-"""Bastet Inference — Unified Cloud Function for Vertex AI inference.
+"""Bastet Interface — Vertex AI 統合推論サーバー（Cloud Function）
 
-Handles vertex-claude (rawPredict), vertex-gemini (generateContent),
-and document-ai (Document AI OCR + LLM translation) providers.
-Authentication: Cloud Functions service account (ADC) for Vertex AI,
-IAM (OIDC) for incoming requests from the Next.js app.
+vertex-claude（rawPredict）、vertex-gemini（generateContent）、
+document-ai（Document AI OCR + LLMによる翻訳）の3プロバイダを統合処理する。
+認証方式: Vertex AIへのアクセスにはCloud FunctionsサービスアカウントのADCを使用し、
+受信リクエストの検証にはNext.jsアプリからのIAM（OIDC）認証を使用する。
 """
 
 import base64
@@ -15,19 +15,25 @@ import google.auth
 import google.auth.transport.requests
 from flask import Request, jsonify
 
-# ---------- Configuration ----------
+# ---------- 設定 ----------
 
+# GCPプロジェクトID（環境変数から取得。未設定の場合は空文字）
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+# Vertex AIのリージョン（デフォルト: us-central1）
 LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+# Document AIプロセッサID（環境変数から取得）
 DOCUMENT_AI_PROCESSOR_ID = os.environ.get("DOCUMENT_AI_PROCESSOR_ID", "")
+# Document AIのロケーション（マルチリージョン: us または eu）
 DOCUMENT_AI_LOCATION = os.environ.get("DOCUMENT_AI_LOCATION", "us")
 
+# 許可するClaudeモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ）
 ALLOWED_CLAUDE_MODELS = {
     "claude-sonnet-4-20250514",
     "claude-sonnet-4-6-20250514",
 }
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
+# 許可するGeminiモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ）
 ALLOWED_GEMINI_MODELS = {
     "gemini-2.0-flash",
     "gemini-2.5-pro",
@@ -35,24 +41,33 @@ ALLOWED_GEMINI_MODELS = {
 }
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
+# Vertex AI APIアクセスに必要なOAuthスコープ
 VERTEX_AI_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
-# ---------- Auth ----------
+# ---------- 認証 ----------
 
 
 def _get_access_token() -> str:
-    """Get an access token for Vertex AI using ADC."""
+    """ADCを使用してVertex AI用のアクセストークンを取得する。
+
+    Application Default Credentials（ADC）を用いてサービスアカウント認証を行い、
+    Vertex AI APIへのリクエストに使用するBearerトークンを返す。
+    """
     credentials, _ = google.auth.default(scopes=[VERTEX_AI_SCOPE])
     auth_request = google.auth.transport.requests.Request()
     credentials.refresh(auth_request)
     return credentials.token
 
 
-# ---------- Message formatting ----------
+# ---------- メッセージ変換 ----------
 
 
 def _to_anthropic_messages(messages: list[dict]) -> list[dict]:
-    """Convert NormalizedMessage[] to Anthropic API message format."""
+    """NormalizedMessage[] をAnthropicAPIのメッセージ形式に変換する。
+
+    フロントエンドの統一メッセージ形式（text / image ブロック）を
+    Anthropic APIが要求するフォーマットに変換する。
+    """
     result = []
     for msg in messages:
         blocks = []
@@ -60,6 +75,7 @@ def _to_anthropic_messages(messages: list[dict]) -> list[dict]:
             if block["type"] == "text":
                 blocks.append({"type": "text", "text": block["text"]})
             elif block["type"] == "image":
+                # base64エンコードされた画像データをAnthropicのsource形式に変換
                 blocks.append({
                     "type": "image",
                     "source": {
@@ -73,7 +89,12 @@ def _to_anthropic_messages(messages: list[dict]) -> list[dict]:
 
 
 def _to_gemini_contents(messages: list[dict]) -> list[dict]:
-    """Convert NormalizedMessage[] to Gemini API contents format."""
+    """NormalizedMessage[] をGemini APIのcontents形式に変換する。
+
+    フロントエンドの統一メッセージ形式（text / image ブロック）を
+    Gemini APIが要求するcontents/parts形式に変換する。
+    Gemini APIでは"assistant"ロールを"model"として送信する必要がある点に注意。
+    """
     result = []
     for msg in messages:
         parts = []
@@ -81,28 +102,36 @@ def _to_gemini_contents(messages: list[dict]) -> list[dict]:
             if block["type"] == "text":
                 parts.append({"text": block["text"]})
             elif block["type"] == "image":
+                # base64画像データをGeminiのinlineData形式に変換
                 parts.append({
                     "inlineData": {
                         "mimeType": block["mediaType"],
                         "data": block["base64Data"],
                     }
                 })
+        # Gemini APIはassistantロールを"model"として扱う
         role = "model" if msg["role"] == "assistant" else msg["role"]
         result.append({"role": role, "parts": parts})
     return result
 
 
-# ---------- Provider handlers ----------
+# ---------- プロバイダハンドラ ----------
 
 
 def _call_vertex_claude(messages: list[dict], model: str) -> dict:
-    """Call Vertex AI Claude via rawPredict."""
+    """Vertex AI経由でClaude（rawPredict）を呼び出す。
+
+    モデル名が許可リストにない場合はデフォルトモデルにフォールバックする。
+    レスポンスのcontentブロックからテキストを結合して返す。
+    """
     import requests
 
+    # 未知のモデル名はデフォルトモデルに差し替える
     resolved_model = model if model in ALLOWED_CLAUDE_MODELS else DEFAULT_CLAUDE_MODEL
     token = _get_access_token()
     anthropic_messages = _to_anthropic_messages(messages)
 
+    # Vertex AI rawPredict エンドポイントを動的に構築
     endpoint = (
         f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
         f"projects/{PROJECT_ID}/locations/{LOCATION}/"
@@ -124,6 +153,7 @@ def _call_vertex_claude(messages: list[dict], model: str) -> dict:
     )
 
     if not resp.ok:
+        # エラー詳細をJSONから取り出せない場合はHTTPステータスコードを返す
         try:
             err_msg = resp.json().get("error", {}).get("message", f"Vertex AI Error {resp.status_code}")
         except Exception:
@@ -131,6 +161,7 @@ def _call_vertex_claude(messages: list[dict], model: str) -> dict:
         return {"error": err_msg}, resp.status_code
 
     data = resp.json()
+    # レスポンスのcontentブロックからtextタイプのみを結合
     text = ""
     for block in data.get("content", []):
         if block.get("type") == "text" and block.get("text"):
@@ -140,13 +171,19 @@ def _call_vertex_claude(messages: list[dict], model: str) -> dict:
 
 
 def _call_vertex_gemini(messages: list[dict], model: str) -> dict:
-    """Call Vertex AI Gemini via generateContent."""
+    """Vertex AI経由でGemini（generateContent）を呼び出す。
+
+    モデル名が許可リストにない場合はデフォルトモデルにフォールバックする。
+    GeminiのfinishReasonをAnthropicと同じstop_reason形式に正規化して返す。
+    """
     import requests
 
+    # 未知のモデル名はデフォルトモデルに差し替える
     resolved_model = model if model in ALLOWED_GEMINI_MODELS else DEFAULT_GEMINI_MODEL
     token = _get_access_token()
     contents = _to_gemini_contents(messages)
 
+    # Vertex AI generateContent エンドポイントを動的に構築
     endpoint = (
         f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
         f"projects/{PROJECT_ID}/locations/{LOCATION}/"
@@ -174,12 +211,14 @@ def _call_vertex_gemini(messages: list[dict], model: str) -> dict:
         return {"error": err_msg}, resp.status_code
 
     data = resp.json()
+    # 最初のcandidateからテキストpartsを結合する
     text = ""
     candidate = (data.get("candidates") or [{}])[0]
     for part in candidate.get("content", {}).get("parts", []):
         if part.get("text"):
             text += part["text"]
 
+    # GeminiのfinishReasonをフロントエンド共通のstop_reason形式に変換
     finish_reason = candidate.get("finishReason", "unknown")
     if finish_reason == "MAX_TOKENS":
         stop_reason = "max_tokens"
@@ -191,11 +230,15 @@ def _call_vertex_gemini(messages: list[dict], model: str) -> dict:
     return {"text": text, "stop_reason": stop_reason}, 200
 
 
-# ---------- Document AI ----------
+# ---------- Document AI 処理 ----------
 
 
 def _extract_image_from_messages(messages: list[dict]) -> tuple[bytes, str]:
-    """Extract the first image from NormalizedMessage[] as (bytes, mime_type)."""
+    """NormalizedMessage[] から最初の画像を（バイト列, MIMEタイプ）として取り出す。
+
+    メッセージリストを順に走査し、最初に見つかったimageブロックの
+    base64データをデコードして返す。画像が存在しない場合はValueErrorを送出する。
+    """
     for msg in messages:
         for block in msg.get("content", []):
             if block.get("type") == "image":
@@ -206,9 +249,14 @@ def _extract_image_from_messages(messages: list[dict]) -> tuple[bytes, str]:
 
 
 def _ocr_with_document_ai(image_bytes: bytes, mime_type: str) -> "google.cloud.documentai.Document":
-    """Call Document AI OCR processor and return the Document object."""
+    """Document AI OCRプロセッサを呼び出し、Documentオブジェクトを返す。
+
+    環境変数で指定されたプロセッサリソースに対してOCR処理を実行し、
+    段落・バウンディングボックス・信頼度スコアを含むDocumentオブジェクトを返す。
+    """
     from google.cloud import documentai
 
+    # Document AIクライアントをロケーション固有のエンドポイントで初期化
     client = documentai.DocumentProcessorServiceClient(
         client_options={"api_endpoint": f"{DOCUMENT_AI_LOCATION}-documentai.googleapis.com"}
     )
@@ -221,16 +269,20 @@ def _ocr_with_document_ai(image_bytes: bytes, mime_type: str) -> "google.cloud.d
 
 
 def _build_text_blocks_from_ocr(document) -> list[dict]:
-    """Convert Document AI OCR result to text_blocks format.
+    """Document AI OCR結果をtext_blocks形式に変換する。
 
-    Each block has: id, content, bbox (normalized 0.0-1.0), confidence.
+    各ブロックは以下のフィールドを持つ:
+    - id: 連番ID（1始まり）
+    - content: OCRで抽出したテキスト
+    - bbox: 正規化バウンディングボックス（0.0〜1.0）{x, y, w, h}
+    - confidence: OCR信頼度スコア
     """
     blocks = []
     block_id = 0
 
     for page in document.pages:
         for paragraph in page.paragraphs:
-            # Extract text from text_anchor segments
+            # text_anchorのセグメント情報を使いdocument.textから文字列を取り出す
             text = ""
             for segment in paragraph.layout.text_anchor.text_segments:
                 start = int(segment.start_index)
@@ -238,9 +290,10 @@ def _build_text_blocks_from_ocr(document) -> list[dict]:
                 text += document.text[start:end]
             text = text.strip().replace("\n", " ")
             if not text:
+                # 空白のみの段落はスキップ
                 continue
 
-            # Convert normalized_vertices to bbox {x, y, w, h}
+            # normalized_verticesから軸平行バウンディングボックス {x, y, w, h} を算出
             vertices = paragraph.layout.bounding_poly.normalized_vertices
             if not vertices:
                 continue
@@ -266,15 +319,16 @@ def _build_text_blocks_from_ocr(document) -> list[dict]:
 
 
 def _translate_blocks(blocks: list[dict], model: str, target_lang: str) -> list[dict]:
-    """Use LLM to translate blocks and classify their types.
+    """LLMを使ってブロックを翻訳し、テキストタイプを分類する。
 
-    Calls the appropriate Vertex AI model (Claude or Gemini) and merges
-    translation + type back into each block.
+    モデル名に応じてVertex AI Claude または Gemini を呼び出し、
+    翻訳結果とタイプ分類を各ブロックにマージして返す。
+    LLM呼び出しが失敗した場合は元テキストをそのままtranslationに設定する。
     """
     if not blocks:
         return blocks
 
-    # Build prompt
+    # LLMへのプロンプトを構築（ブロックID付きで翻訳とタイプ分類を依頼）
     blocks_text = "\n".join(f'[{b["id"]}] "{b["content"]}"' for b in blocks)
     prompt = f"""以下のテキストブロック（OCRで検出済み）を{target_lang}に翻訳し、各ブロックのタイプを分類してください。
 
@@ -296,23 +350,23 @@ def _translate_blocks(blocks: list[dict], model: str, target_lang: str) -> list[
 
     messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
 
-    # Route to appropriate LLM
+    # モデル名のプレフィックスでGemini/Claudeを振り分け
     if model.startswith("gemini"):
         result, status = _call_vertex_gemini(messages, model)
     else:
         result, status = _call_vertex_claude(messages, model)
 
     if status != 200:
-        # LLM call failed — return blocks without translation
+        # LLM呼び出し失敗時は元テキストをtranslationとしてフォールバック
         for b in blocks:
             b["type"] = "paragraph"
             b["translation"] = b["content"]
         return blocks
 
-    # Parse LLM response
+    # LLMレスポンスのJSONをパース
     try:
         text = result["text"].strip()
-        # Strip markdown fences if present
+        # マークダウンコードフェンスが含まれている場合は除去
         if text.startswith("```"):
             text = text.split("\n", 1)[1] if "\n" in text else text[3:]
             if text.endswith("```"):
@@ -321,13 +375,13 @@ def _translate_blocks(blocks: list[dict], model: str, target_lang: str) -> list[
         parsed = json.loads(text)
         results = parsed.get("results", parsed) if isinstance(parsed, dict) else parsed
     except (json.JSONDecodeError, KeyError):
-        # Fallback: no translation
+        # JSONパース失敗時は元テキストをそのまま返す
         for b in blocks:
             b["type"] = "paragraph"
             b["translation"] = b["content"]
         return blocks
 
-    # Merge translations into blocks
+    # ブロックIDをキーにして翻訳結果をマージ
     translation_map = {r["id"]: r for r in results}
     for b in blocks:
         tr = translation_map.get(b["id"], {})
@@ -338,28 +392,33 @@ def _translate_blocks(blocks: list[dict], model: str, target_lang: str) -> list[
 
 
 def _call_document_ai(messages: list[dict], model: str, target_lang: str) -> tuple[dict, int]:
-    """Main handler: Document AI OCR → LLM translation → merged JSON response."""
+    """メインハンドラ: Document AI OCR → LLM翻訳 → JSON形式でレスポンスを構築する。
+
+    画像抽出 → OCR → テキストブロック変換 → LLM翻訳 の4ステップで処理し、
+    Claude Vision互換のtext_blocks形式でレスポンスを返す。
+    """
     try:
         image_bytes, mime_type = _extract_image_from_messages(messages)
     except ValueError as e:
         return {"error": str(e)}, 400
 
-    # Step 1: OCR with Document AI
+    # Step 1: Document AIでOCR処理を実行
     document = _ocr_with_document_ai(image_bytes, mime_type)
 
-    # Step 2: Build text blocks from OCR result
+    # Step 2: OCR結果をtext_blocks形式に変換
     blocks = _build_text_blocks_from_ocr(document)
 
     if not blocks:
+        # OCR結果が空の場合は空のtext_blocksを返す
         return {
             "text": json.dumps({"text_blocks": []}, ensure_ascii=False),
             "stop_reason": "end_turn",
         }, 200
 
-    # Step 3: Translate + classify with LLM
+    # Step 3: LLMで翻訳とタイプ分類を実行
     blocks = _translate_blocks(blocks, model, target_lang)
 
-    # Step 4: Build response in same format as Claude Vision
+    # Step 4: Claude Vision互換のtext_blocks形式でレスポンスを組み立てる
     text_blocks = []
     for b in blocks:
         text_blocks.append({
@@ -375,13 +434,18 @@ def _call_document_ai(messages: list[dict], model: str, target_lang: str) -> tup
     return {"text": response_json, "stop_reason": "end_turn"}, 200
 
 
-# ---------- Entry point ----------
+# ---------- エントリポイント ----------
 
 
 @functions_framework.http
 def inference(request: Request):
-    """Cloud Function entry point for inference requests."""
-    # CORS preflight
+    """Cloud Functionの推論リクエスト受付エントリポイント。
+
+    POSTリクエストのbodyからprovider・model・messagesを取得し、
+    各プロバイダハンドラに処理を委譲する。
+    CORSプリフライト（OPTIONS）も処理する。
+    """
+    # CORSプリフライトリクエストへの応答
     if request.method == "OPTIONS":
         headers = {
             "Access-Control-Allow-Origin": "*",
@@ -406,6 +470,7 @@ def inference(request: Request):
         if not provider or not messages:
             return jsonify({"error": "provider and messages are required"}), 400
 
+        # providerフィールドに応じて対応するハンドラに処理を振り分け
         if provider == "vertex-claude":
             result, status = _call_vertex_claude(messages, model)
         elif provider == "vertex-gemini":
