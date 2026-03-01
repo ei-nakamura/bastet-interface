@@ -23,3 +23,10 @@ service-account*.json
 .idea/
 .vscode/
 *.swp
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars

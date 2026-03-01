@@ -1,0 +1,14 @@
+output "function_url" {
+  description = "Cloud FunctionsのエンドポイントURL"
+  value       = google_cloudfunctions2_function.function.service_config[0].uri
+}
+
+output "service_account_email" {
+  description = "Cloud Functions用サービスアカウントのメールアドレス"
+  value       = google_service_account.function_sa.email
+}
+
+output "document_ai_processor_id" {
+  description = "Document AIプロセッサID"
+  value       = google_document_ai_processor.ocr.id
+}

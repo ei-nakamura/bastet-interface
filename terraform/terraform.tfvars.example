@@ -1,0 +1,8 @@
+# terraform.tfvars の記入例
+# このファイルをコピーして terraform.tfvars を作成し、実際の値を入力してください。
+# terraform.tfvars は .gitignore によりリポジトリに含まれません。
+
+project_id           = "your-gcp-project-id"
+region               = "us-central1"
+document_ai_location = "us"
+function_name        = "bastet-interface"
