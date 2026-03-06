@@ -77,7 +77,7 @@ resource "google_cloudfunctions2_function" "function" {
   project  = var.project_id
 
   build_config {
-    runtime     = "python311"
+    runtime     = "python312"
     entry_point = "inference"
     source {
       storage_source {

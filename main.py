@@ -30,16 +30,20 @@ DOCUMENT_AI_LOCATION = os.environ.get("DOCUMENT_AI_LOCATION", "us")
 ALLOWED_CLAUDE_MODELS = {
     "claude-sonnet-4-20250514",
     "claude-sonnet-4-6-20250514",
+    "claude-opus-4-20250514",
+    "claude-opus-4-6-20250822",
+    "claude-sonnet-4-5-20250514",
+    "claude-haiku-4-5-20251001",
 }
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6-20250514"
 
 # 許可するGeminiモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ）
 ALLOWED_GEMINI_MODELS = {
-    "gemini-2.0-flash",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
 }
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 # Vertex AI APIアクセスに必要なOAuthスコープ
 VERTEX_AI_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
