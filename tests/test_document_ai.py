@@ -332,7 +332,10 @@ class TestEntryDispatchesDocumentAi:
 
         target_langパラメータが正しくハンドラに渡されることも確認する。
         """
+        from flask import Flask
         from main import inference
+
+        app = Flask(__name__)
 
         # モックが成功レスポンスを返すよう設定
         mock_docai.return_value = (
@@ -352,7 +355,8 @@ class TestEntryDispatchesDocumentAi:
             "target_lang": "English",
         }
 
-        response = inference(request)
+        with app.app_context():
+            response = inference(request)
         # _call_document_aiが正しい引数で呼ばれたことを検証
         mock_docai.assert_called_once_with(
             request.get_json.return_value["messages"],
