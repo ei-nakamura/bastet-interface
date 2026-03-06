@@ -16,7 +16,7 @@ apply:
 deploy:
 	gcloud functions deploy bastet-interface \
 		--gen2 \
-		--runtime=python311 \
+		--runtime=python312 \
 		--region=us-central1 \
 		--source=. \
 		--entry-point=inference \
