@@ -438,6 +438,125 @@ def _call_document_ai(messages: list[dict], model: str, target_lang: str) -> tup
     return {"text": response_json, "stop_reason": "end_turn"}, 200
 
 
+# ---------- 新リクエスト形式ハンドラ ----------
+
+
+def _build_detect_translate_prompt(target_lang: str, img_w: int, img_h: int) -> str:
+    return f"""この書類画像を解析し、文章のかたまり（テキストブロック）を検出し、同時に{target_lang}に翻訳してください。
+
+    画像サイズ: 幅 {img_w}px × 高さ {img_h}px
+
+    各テキストブロックについて以下のJSON形式で出力:
+    - id: 連番
+    - type: "title"|"heading"|"paragraph"|"list"|"table"|"caption"|"header"|"footer"|"other"
+    - content: 原文テキスト内容（改行は半角スペースに置換。省略せず全文を含めること）
+    - translation: {target_lang}に翻訳したテキスト
+    - bbox: 正規化された境界ボックス座標（画像の幅・高さを1.0とした0.0〜1.0の小数）
+      - x: 左端の位置（0.0=左端、1.0=右端）
+      - y: 上端の位置（0.0=上端、1.0=下端）
+      - w: 幅（0.0〜1.0）
+      - h: 高さ（0.0〜1.0）
+    - confidence: 0.0〜1.0
+
+    注意:
+    1. 座標は必ず0.0〜1.0の範囲内にすること
+    2. x+w<=1.0, y+h<=1.0であること
+    3. すべてのテキストを漏れなく検出
+    4. 翻訳は自然で流暢な{target_lang}にすること
+    5. JSONのみ出力、マークダウンの囲みや説明文は不要
+
+    出力: {{ "text_blocks": [ ... ] }}"""
+
+
+def _build_translate_prompt(blocks: list[dict], target_lang: str) -> str:
+    blocks_text = "\n".join(f'[{b["id"]}] {b["content"]}' for b in blocks)
+    return f"以下のテキストブロックを{target_lang}に翻訳してください。\n\n{blocks_text}\n\nJSON配列のみ出力（マークダウンの囲みや説明文は不要）:\n[ {{ \"id\": 1, \"translation\": \"翻訳文\" }}, ... ]"
+
+
+def _parse_json_response(text: str):
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:])
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    return json.loads(text)
+
+
+def _handle_image_request(image: dict, target_lang: str, img_w: int, img_h: int, model: str, provider: str) -> tuple[dict, int]:
+    base64_data = image.get("base64Data", "")
+    media_type = image.get("mediaType", "image/png")
+
+    if provider == "document-ai":
+        image_bytes = base64.b64decode(base64_data)
+        document = _ocr_with_document_ai(image_bytes, media_type)
+        blocks = _build_text_blocks_from_ocr(document)
+        if not blocks:
+            return {"text_blocks": []}, 200
+        blocks = _translate_blocks(blocks, model, target_lang)
+        text_blocks = [
+            {
+                "id": b["id"],
+                "type": b.get("type", "paragraph"),
+                "content": b["content"],
+                "translation": b.get("translation", ""),
+                "bbox": b["bbox"],
+                "confidence": b["confidence"],
+            }
+            for b in blocks
+        ]
+        return {"text_blocks": text_blocks}, 200
+    else:
+        prompt = _build_detect_translate_prompt(target_lang, img_w, img_h)
+        messages = [{"role": "user", "content": [
+            {"type": "image", "mediaType": media_type, "base64Data": base64_data},
+            {"type": "text", "text": prompt},
+        ]}]
+        if provider == "vertex-gemini":
+            result, status = _call_vertex_gemini(messages, model)
+        else:
+            result, status = _call_vertex_claude(messages, model)
+        if status != 200:
+            return result, status
+        try:
+            parsed = _parse_json_response(result["text"])
+            text_blocks = parsed.get("text_blocks", parsed) if isinstance(parsed, dict) else parsed
+            return {"text_blocks": text_blocks}, 200
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return {"error": "Failed to parse LLM response", "raw": result.get("text", "")}, 500
+
+
+def _handle_text_translation_request(text_blocks: list[dict], target_lang: str, model: str, provider: str) -> tuple[dict, int]:
+    prompt = _build_translate_prompt(text_blocks, target_lang)
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+    if provider == "vertex-gemini":
+        result, status = _call_vertex_gemini(messages, model)
+    else:
+        result, status = _call_vertex_claude(messages, model)
+    if status != 200:
+        return result, status
+    try:
+        parsed = _parse_json_response(result["text"])
+        translations = parsed if isinstance(parsed, list) else parsed.get("translations", [])
+        trans_map = {t["id"]: t["translation"] for t in translations}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return {"error": "Failed to parse translation response"}, 500
+    output_blocks = []
+    for b in text_blocks:
+        block = {
+            "id": b["id"],
+            "type": b.get("type", "paragraph"),
+            "content": b["content"],
+            "translation": trans_map.get(b["id"], b["content"]),
+        }
+        if "bbox" in b:
+            block["bbox"] = b["bbox"]
+        if "confidence" in b:
+            block["confidence"] = b["confidence"]
+        output_blocks.append(block)
+    return {"text_blocks": output_blocks}, 200
+
+
 # ---------- エントリポイント ----------
 
 
@@ -445,7 +564,7 @@ def _call_document_ai(messages: list[dict], model: str, target_lang: str) -> tup
 def inference(request: Request):
     """Cloud Functionの推論リクエスト受付エントリポイント。
 
-    POSTリクエストのbodyからprovider・model・messagesを取得し、
+    POSTリクエストのbodyからprovider・model・image or text_blocksを取得し、
     各プロバイダハンドラに処理を委譲する。
     CORSプリフライト（OPTIONS）も処理する。
     """
@@ -469,21 +588,24 @@ def inference(request: Request):
 
         provider = body.get("provider")
         model = body.get("model", "")
-        messages = body.get("messages")
+        target_lang = body.get("targetLang") or body.get("target_lang", "日本語")
 
-        if not provider or not messages:
-            return jsonify({"error": "provider and messages are required"}), 400
+        if not provider:
+            return jsonify({"error": "provider is required"}), 400
 
-        # providerフィールドに応じて対応するハンドラに処理を振り分け
-        if provider == "vertex-claude":
-            result, status = _call_vertex_claude(messages, model)
-        elif provider == "vertex-gemini":
-            result, status = _call_vertex_gemini(messages, model)
-        elif provider == "document-ai":
-            target_lang = body.get("target_lang", "日本語")
-            result, status = _call_document_ai(messages, model, target_lang)
+        # リクエスト種別で分岐
+        if "image" in body:
+            image = body.get("image")
+            img_w = body.get("imageWidth", 0)
+            img_h = body.get("imageHeight", 0)
+            result, status = _handle_image_request(image, target_lang, img_w, img_h, model, provider)
+        elif "text_blocks" in body:
+            text_blocks = body.get("text_blocks")
+            if provider == "document-ai":
+                return jsonify({"error": "document-ai does not support text_blocks request"}), 400
+            result, status = _handle_text_translation_request(text_blocks, target_lang, model, provider)
         else:
-            return jsonify({"error": f"Unknown provider: {provider}"}), 400
+            return jsonify({"error": "Either 'image' or 'text_blocks' is required"}), 400
 
         return jsonify(result), status
 

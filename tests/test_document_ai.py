@@ -323,14 +323,14 @@ class TestCallDocumentAi:
 class TestEntryDispatchesDocumentAi:
     """inferenceエントリポイントのdocument-aiプロバイダルーティングテスト。
 
-    document-aiプロバイダが指定されたとき、_call_document_aiに正しくディスパッチされることを検証する。
+    document-aiプロバイダが指定されたとき、_handle_image_requestに正しくディスパッチされることを検証する。
     """
 
-    @patch("main._call_document_ai")
-    def test_provider_document_ai_dispatches(self, mock_docai):
-        """provider="document-ai"のリクエストが_call_document_aiに正しく転送されること。
+    @patch("main._handle_image_request")
+    def test_image_request_document_ai(self, mock_handler):
+        """provider="document-ai"のリクエストが_handle_image_requestに正しく転送されること。
 
-        target_langパラメータが正しくハンドラに渡されることも確認する。
+        新形式リクエスト（imageキー）が正しくハンドラに渡されることを確認する。
         """
         from flask import Flask
         from main import inference
@@ -338,10 +338,7 @@ class TestEntryDispatchesDocumentAi:
         app = Flask(__name__)
 
         # モックが成功レスポンスを返すよう設定
-        mock_docai.return_value = (
-            {"text": '{"text_blocks": []}', "stop_reason": "end_turn"},
-            200,
-        )
+        mock_handler.return_value = ({"text_blocks": []}, 200)
 
         img_data = base64.b64encode(b"fake-image").decode()
         request = MagicMock()
@@ -349,17 +346,20 @@ class TestEntryDispatchesDocumentAi:
         request.get_json.return_value = {
             "provider": "document-ai",
             "model": "claude-sonnet-4-20250514",
-            "messages": [{"role": "user", "content": [
-                {"type": "image", "mediaType": "image/png", "base64Data": img_data},
-            ]}],
-            "target_lang": "English",
+            "image": {"base64Data": img_data, "mediaType": "image/png"},
+            "targetLang": "English",
+            "imageWidth": 800,
+            "imageHeight": 600,
         }
 
         with app.app_context():
             response = inference(request)
-        # _call_document_aiが正しい引数で呼ばれたことを検証
-        mock_docai.assert_called_once_with(
-            request.get_json.return_value["messages"],
-            "claude-sonnet-4-20250514",
+        # _handle_image_requestが正しい引数で呼ばれたことを検証
+        mock_handler.assert_called_once_with(
+            {"base64Data": img_data, "mediaType": "image/png"},
             "English",
+            800,
+            600,
+            "claude-sonnet-4-20250514",
+            "document-ai",
         )
