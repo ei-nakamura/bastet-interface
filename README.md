@@ -95,52 +95,88 @@ Content-Type: application/json
 
 ### リクエスト形式
 
+リクエストは2種類。`image` または `text_blocks` のいずれか一方を必ず含める。
+
+#### (A) 画像解析+翻訳リクエスト（全プロバイダ対応）
+
 ```json
 {
   "provider": "vertex-claude" | "vertex-gemini" | "document-ai",
-  "model": "モデル名（省略時はデフォルトモデルを使用）",
-  "messages": [
-    {
-      "role": "user" | "assistant",
-      "content": [
-        { "type": "text", "text": "テキスト" },
-        { "type": "image", "mediaType": "image/png", "base64Data": "base64文字列" }
-      ]
-    }
+  "model": "claude-sonnet-4-6-20250514",
+  "image": {
+    "base64Data": "<base64エンコードされた画像>",
+    "mediaType": "image/png"
+  },
+  "targetLang": "日本語",
+  "imageWidth": 1536,
+  "imageHeight": 2048
+}
+```
+
+#### (B) テキスト翻訳リクエスト（vertex-claude / vertex-gemini のみ）
+
+```json
+{
+  "provider": "vertex-claude" | "vertex-gemini",
+  "model": "claude-sonnet-4-6-20250514",
+  "text_blocks": [
+    { "id": 1, "content": "原文テキスト" }
   ],
-  "target_lang": "日本語"  // document-aiプロバイダ専用（省略時: "日本語"）
+  "targetLang": "日本語"
 }
 ```
 
-### プロバイダ別の動作
+> **注意**: `document-ai` プロバイダは `text_blocks` リクエスト非対応（400エラー）。
 
-| プロバイダ | モデル例 | 動作 |
-|-----------|---------|------|
-| `vertex-claude` | `claude-sonnet-4-20250514` | Vertex AI rawPredict経由でClaudeを呼び出す |
-| `vertex-gemini` | `gemini-2.0-flash` | Vertex AI generateContent経由でGeminiを呼び出す |
-| `document-ai` | `claude-sonnet-4-20250514` | Document AI OCR → LLM翻訳の2段階処理 |
+### プロバイダ・モデル一覧
 
-### レスポンス形式（vertex-claude / vertex-gemini）
+| プロバイダ | 対応リクエスト | 動作 |
+|-----------|-------------|------|
+| `vertex-claude` | 画像・テキスト両対応 | Vertex AI rawPredict経由でClaudeを呼び出す |
+| `vertex-gemini` | 画像・テキスト両対応 | Vertex AI generateContent経由でGeminiを呼び出す |
+| `document-ai` | 画像のみ | Document AI OCR → LLM翻訳の2段階処理 |
+
+#### Claude モデル（vertex-claude / document-ai）
+
+| モデルID | デフォルト |
+|---------|-----------|
+| `claude-sonnet-4-6-20250514` | ✅ |
+| `claude-sonnet-4-20250514` | |
+| `claude-opus-4-6-20250822` | |
+| `claude-opus-4-20250514` | |
+| `claude-sonnet-4-5-20250514` | |
+| `claude-haiku-4-5-20251001` | |
+
+#### Gemini モデル（vertex-gemini）
+
+| モデルID | デフォルト |
+|---------|-----------|
+| `gemini-2.5-flash` | ✅ |
+| `gemini-2.5-pro` | |
+| `gemini-2.5-flash-lite` | |
+
+モデル未指定または未知のモデル名はデフォルトモデルにフォールバックする。
+
+### レスポンス形式（両パターン共通）
 
 ```json
 {
-  "text": "生成されたテキスト",
-  "stop_reason": "end_turn" | "max_tokens"
+  "text_blocks": [
+    {
+      "id": 1,
+      "type": "title",
+      "content": "原文テキスト",
+      "translation": "翻訳されたテキスト",
+      "bbox": { "x": 0.05, "y": 0.1, "w": 0.9, "h": 0.08 },
+      "confidence": 0.95
+    }
+  ]
 }
 ```
 
-### レスポンス形式（document-ai）
+> **注意**: `text_blocks` リクエスト（B）の場合、`bbox` / `confidence` は元データに含まれる場合のみ出力される。
 
-```json
-{
-  "text": "{\"text_blocks\": [{\"id\": 1, \"type\": \"paragraph\", \"content\": \"原文\", \"translation\": \"翻訳文\", \"bbox\": {\"x\": 0.1, \"y\": 0.2, \"w\": 0.8, \"h\": 0.05}, \"confidence\": 0.95}]}",
-  "stop_reason": "end_turn"
-}
-```
-
-`text`フィールドはJSON文字列として格納されており、パース後に`text_blocks`配列を取得できる。
-
-#### text_blockのフィールド
+#### text_block フィールド
 
 | フィールド | 型 | 説明 |
 |-----------|-----|------|
@@ -161,7 +197,7 @@ Content-Type: application/json
 
 | HTTPステータス | 原因 |
 |--------------|------|
-| 400 | リクエストボディが不正 / 必須フィールド不足 / 画像が見つからない |
+| 400 | リクエストボディが不正 / 必須フィールド不足 / document-ai に text_blocks を送信 |
 | 405 | POST以外のメソッド |
 | 500 | 内部エラー（Vertex AI / Document AI APIエラー含む） |
 
