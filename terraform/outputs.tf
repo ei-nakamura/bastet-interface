@@ -12,3 +12,8 @@ output "document_ai_processor_id" {
   description = "Document AIプロセッサID"
   value       = google_document_ai_processor.ocr.id
 }
+
+output "cloudbuild_trigger_id" {
+  description = "Cloud BuildトリガーID"
+  value       = google_cloudbuild_trigger.deploy.trigger_id
+}

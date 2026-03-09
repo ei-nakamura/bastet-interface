@@ -105,6 +105,32 @@ resource "google_cloudfunctions2_function" "function" {
   ]
 }
 
+# ---------- Cloud Build トリガー ----------
+
+resource "google_cloudbuild_trigger" "deploy" {
+  name     = "${var.function_name}-deploy"
+  project  = var.project_id
+  location = var.region
+
+  github {
+    owner = var.github_owner
+    name  = var.github_repo
+
+    push {
+      branch = var.github_branch
+    }
+  }
+
+  filename = "cloudbuild.yaml"
+
+  substitutions = {
+    _REGION        = var.region
+    _FUNCTION_NAME = var.function_name
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 # ---------- Cloud Run IAM: 未認証アクセス許可 ----------
 
 resource "google_cloud_run_service_iam_member" "invoker" {

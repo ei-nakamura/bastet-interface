@@ -1,0 +1,68 @@
+# Cloud Build — bastet-interface デプロイ
+#
+# トリガー設定例:
+#   gcloud builds triggers create github \
+#     --repo-name=bastet-interface \
+#     --repo-owner=<OWNER> \
+#     --branch-pattern='^main$' \
+#     --build-config=cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_FUNCTION_NAME=bastet-interface
+#
+# 必要な置換変数:
+#   _REGION          — デプロイリージョン (デフォルト: us-central1)
+#   _FUNCTION_NAME   — Cloud Functions 関数名 (デフォルト: bastet-interface)
+
+substitutions:
+  _REGION: us-central1
+  _FUNCTION_NAME: bastet-interface
+
+steps:
+  # 1. 依存パッケージのインストール
+  - id: install
+    name: python:3.11-slim
+    entrypoint: pip
+    args: ["install", "-r", "requirements.txt", "--user"]
+
+  # 2. Lint
+  - id: lint
+    name: python:3.11-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install ruff --quiet
+        ruff check .
+    waitFor: ["-"]
+
+  # 3. テスト実行
+  - id: test
+    name: python:3.11-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install -r requirements.txt pytest --quiet
+        pytest tests/ -v
+    waitFor: ["-"]
+
+  # 4. Cloud Functions Gen2 デプロイ
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - functions
+      - deploy
+      - ${_FUNCTION_NAME}
+      - --gen2
+      - --runtime=python311
+      - --region=${_REGION}
+      - --source=.
+      - --entry-point=inference
+      - --trigger-http
+      - --allow-unauthenticated
+    waitFor: [lint, test]
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 600s

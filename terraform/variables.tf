@@ -20,3 +20,20 @@ variable "function_name" {
   type        = string
   default     = "bastet-interface"
 }
+
+variable "github_owner" {
+  description = "GitHubリポジトリのオーナー（ユーザー名 or 組織名）"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHubリポジトリ名"
+  type        = string
+  default     = "bastet-interface"
+}
+
+variable "github_branch" {
+  description = "Cloud Buildトリガーの対象ブランチ（正規表現）"
+  type        = string
+  default     = "^main$"
+}
