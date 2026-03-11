@@ -1,0 +1,300 @@
+openapi: 3.0.3
+info:
+  title: Bastet API
+  description: |-
+    Claude APIプロキシおよび複数プロバイダ対応の統合推論エンドポイント。
+    クライアントはAPIキーを自身で保持し、サーバー経由でAnthropicへリクエストを中継します。
+  version: 1.0.0
+
+servers:
+  - url: https://v0-bastet-lp.vercel.app
+    description: Production
+
+paths:
+  /api/claude:
+    post:
+      summary: Claude API プロキシ（reserved / 未実装）
+      description: |-
+        このエンドポイントは現在未実装です（reserved）。
+        将来のバージョンで実装予定。現在は /api/inference を使用してください。
+      deprecated: true
+      operationId: proxyClaudeMessages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaudeProxyRequest"
+      responses:
+        "501":
+          description: 未実装
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/inference:
+    post:
+      summary: 統合推論エンドポイント
+      description: |-
+        複数プロバイダ（Vertex AI Claude・Vertex AI Gemini）に
+        対応した統合推論エンドポイント。
+        リクエスト種別: ImageRequest（画像からの翻訳）または TextTranslationRequest（テキストブロック翻訳）。
+        Vertex AI系はサーバーサイドIAM認証を使用するためAPIキー不要。
+      operationId: inference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ImageRequest"
+                - $ref: "#/components/schemas/TextTranslationRequest"
+            examples:
+              image_request:
+                summary: 画像翻訳リクエスト（ImageRequest）
+                value:
+                  provider: "vertex-claude"
+                  image:
+                    base64Data: "iVBORw0KGgo..."
+                    mediaType: "image/png"
+                  targetLang: "日本語"
+                  imageWidth: 1920
+                  imageHeight: 1080
+              text_translation:
+                summary: テキストブロック翻訳リクエスト（TextTranslationRequest）
+                value:
+                  provider: "vertex-gemini"
+                  text_blocks:
+                    - id: 1
+                      content: "Hello world"
+                      type: "paragraph"
+                  targetLang: "日本語"
+      responses:
+        "200":
+          description: 推論成功
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/InferenceResponse"
+                  - $ref: "#/components/schemas/TextBlocksResponse"
+        "400":
+          description: リクエスト不正（必須パラメータ不足・未対応プロバイダ）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: サーバー内部エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+
+    Message:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+          description: メッセージの送信者ロール
+        content:
+          type: string
+          description: メッセージ本文
+
+    ClaudeProxyRequest:
+      type: object
+      required:
+        - apiKey
+        - messages
+      properties:
+        apiKey:
+          type: string
+          description: Anthropic APIキー（`sk-ant-` で始まる文字列）
+          pattern: "^sk-ant-"
+          example: "sk-ant-api03-xxxxxxxxxxxx"
+        messages:
+          type: array
+          description: Anthropic Messages API形式のメッセージ配列
+          items:
+            $ref: "#/components/schemas/Message"
+          minItems: 1
+        model:
+          type: string
+          description: |-
+            使用するClaudeモデルID。ホワイトリスト以外の値はデフォルトにフォールバック。
+          enum:
+            - claude-sonnet-4-20250514
+            - claude-sonnet-4-6-20250514
+            - claude-opus-4-20250514
+            - claude-opus-4-6-20250822
+            - claude-sonnet-4-5-20250514
+            - claude-haiku-4-5-20251001
+
+    ClaudeProxyResponse:
+      type: object
+      properties:
+        text:
+          type: string
+          description: Claudeが生成したテキストレスポンス
+        stop_reason:
+          type: string
+          description: 生成停止理由（Anthropic API準拠）
+          enum: [end_turn, max_tokens, stop_sequence, tool_use, unknown]
+          example: end_turn
+
+    InferenceResponse:
+      type: object
+      properties:
+        text:
+          type: string
+          description: モデルが生成したテキストレスポンス
+        stop_reason:
+          type: string
+          description: 生成停止理由
+          example: end_turn
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: エラーメッセージ
+          example: "apiKey and messages are required"
+
+    ImageData:
+      type: object
+      required: [base64Data, mediaType]
+      properties:
+        base64Data:
+          type: string
+          description: Base64エンコードされた画像データ
+        mediaType:
+          type: string
+          enum: [image/png, image/jpeg, image/webp]
+          description: 画像のMIMEタイプ
+
+    BoundingBox:
+      type: object
+      required: [x, y, w, h]
+      properties:
+        x:
+          type: number
+          format: float
+          description: 左端の位置（0.0〜1.0）
+        y:
+          type: number
+          format: float
+          description: 上端の位置（0.0〜1.0）
+        w:
+          type: number
+          format: float
+          description: 幅（0.0〜1.0）
+        h:
+          type: number
+          format: float
+          description: 高さ（0.0〜1.0）
+
+    InputTextBlock:
+      type: object
+      required: [id, content]
+      properties:
+        id:
+          type: integer
+          description: ブロックID
+        content:
+          type: string
+          description: 原文テキスト
+        type:
+          type: string
+          enum: [title, heading, paragraph, list, table, caption, header, footer, other]
+        bbox:
+          $ref: "#/components/schemas/BoundingBox"
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+
+    OutputTextBlock:
+      type: object
+      required: [id, type, content, translation]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [title, heading, paragraph, list, table, caption, header, footer, other]
+        content:
+          type: string
+          description: 原文テキスト
+        translation:
+          type: string
+          description: 翻訳テキスト
+        bbox:
+          $ref: "#/components/schemas/BoundingBox"
+        confidence:
+          type: number
+          format: float
+
+    ImageRequest:
+      type: object
+      required: [provider, image, targetLang]
+      properties:
+        provider:
+          type: string
+          enum: [vertex-claude, vertex-gemini]
+        model:
+          type: string
+          description: 使用するモデルID（省略時はデフォルトモデルを使用）
+        image:
+          $ref: "#/components/schemas/ImageData"
+        targetLang:
+          type: string
+          description: "翻訳先言語名（例: 日本語, English）"
+        imageWidth:
+          type: integer
+          description: 元画像の幅（ピクセル）
+        imageHeight:
+          type: integer
+          description: 元画像の高さ（ピクセル）
+
+    TextTranslationRequest:
+      type: object
+      required: [provider, text_blocks, targetLang]
+      properties:
+        provider:
+          type: string
+          enum: [vertex-claude, vertex-gemini]
+        model:
+          type: string
+        text_blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputTextBlock"
+          minItems: 1
+        targetLang:
+          type: string
+          description: "翻訳先言語名（例: 日本語, English）"
+
+    TextBlocksResponse:
+      type: object
+      required: [text_blocks]
+      properties:
+        text_blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutputTextBlock"
