@@ -4,5 +4,4 @@
 
 project_id           = "your-gcp-project-id"
 region               = "us-central1"
-document_ai_location = "us"
 function_name        = "bastet-interface"

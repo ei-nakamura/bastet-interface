@@ -37,7 +37,7 @@ paths:
     post:
       summary: 統合推論エンドポイント
       description: |-
-        複数プロバイダ（Vertex AI Claude・Vertex AI Gemini・Document AI）に
+        複数プロバイダ（Vertex AI Claude・Vertex AI Gemini）に
         対応した統合推論エンドポイント。
         リクエスト種別: ImageRequest（画像からの翻訳）または TextTranslationRequest（テキストブロック翻訳）。
         Vertex AI系はサーバーサイドIAM認証を使用するためAPIキー不要。
@@ -256,7 +256,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [vertex-claude, vertex-gemini, document-ai]
+          enum: [vertex-claude, vertex-gemini]
         model:
           type: string
           description: 使用するモデルID（省略時はデフォルトモデルを使用）
@@ -279,7 +279,6 @@ components:
         provider:
           type: string
           enum: [vertex-claude, vertex-gemini]
-          description: document-aiは未対応
         model:
           type: string
         text_blocks:

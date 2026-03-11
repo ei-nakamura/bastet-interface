@@ -3,7 +3,6 @@
 resource "google_project_service" "apis" {
   for_each = toset([
     "aiplatform.googleapis.com",
-    "documentai.googleapis.com",
     "cloudfunctions.googleapis.com",
     "cloudbuild.googleapis.com",
     "run.googleapis.com",
@@ -54,21 +53,6 @@ resource "google_project_iam_member" "aiplatform_user" {
   member  = "serviceAccount:${google_service_account.function_sa.email}"
 }
 
-resource "google_project_iam_member" "documentai_user" {
-  project = var.project_id
-  role    = "roles/documentai.apiUser"
-  member  = "serviceAccount:${google_service_account.function_sa.email}"
-}
-
-# ---------- Document AI プロセッサ ----------
-
-resource "google_document_ai_processor" "ocr" {
-  location     = var.document_ai_location
-  display_name = "${var.function_name}-ocr"
-  type         = "OCR_PROCESSOR"
-  project      = var.project_id
-}
-
 # ---------- Cloud Functions Gen2 ----------
 
 resource "google_cloudfunctions2_function" "function" {
@@ -93,9 +77,7 @@ resource "google_cloudfunctions2_function" "function" {
     timeout_seconds       = 120
     service_account_email = google_service_account.function_sa.email
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT     = var.project_id
-      DOCUMENT_AI_PROCESSOR_ID = google_document_ai_processor.ocr.id
-      DOCUMENT_AI_LOCATION     = var.document_ai_location
+      GOOGLE_CLOUD_PROJECT = var.project_id
     }
   }
 
