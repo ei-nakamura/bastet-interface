@@ -349,8 +349,10 @@ def inference(request: Request):
         return ("", 204, headers)
 
     ALLOWED_ORIGINS = ["https://v0-bastet-lp.vercel.app"]
+    auth_header = request.headers.get("Authorization", "")
     origin = request.headers.get("Origin", "")
-    if origin not in ALLOWED_ORIGINS:
+    # Authorization Bearerトークンがあればサーバー間通信とみなしOrigin検証スキップ
+    if not auth_header.startswith("Bearer ") and origin not in ALLOWED_ORIGINS:
         return Response(
             json.dumps({"error": "Forbidden"}),
             status=403,
