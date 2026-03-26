@@ -4,7 +4,6 @@ resource "google_project_service" "apis" {
   for_each = toset([
     "aiplatform.googleapis.com",
     "cloudfunctions.googleapis.com",
-    "cloudbuild.googleapis.com",
     "run.googleapis.com",
     "storage.googleapis.com",
   ])
@@ -85,32 +84,6 @@ resource "google_cloudfunctions2_function" "function" {
     google_project_service.apis,
     google_storage_bucket_object.source_archive,
   ]
-}
-
-# ---------- Cloud Build トリガー ----------
-
-resource "google_cloudbuild_trigger" "deploy" {
-  name     = "${var.function_name}-deploy"
-  project  = var.project_id
-  location = var.region
-
-  github {
-    owner = var.github_owner
-    name  = var.github_repo
-
-    push {
-      branch = var.github_branch
-    }
-  }
-
-  filename = "cloudbuild.yaml"
-
-  substitutions = {
-    _REGION        = var.region
-    _FUNCTION_NAME = var.function_name
-  }
-
-  depends_on = [google_project_service.apis]
 }
 
 # ---------- Cloud Run IAM: 未認証アクセス許可 ----------
