@@ -12,7 +12,7 @@ import os
 import functions_framework
 import google.auth
 import google.auth.transport.requests
-from flask import Request, jsonify
+from flask import Request, Response, jsonify
 
 # ---------- 設定 ----------
 
@@ -341,27 +341,40 @@ def inference(request: Request):
     # CORSプリフライトリクエストへの応答
     if request.method == "OPTIONS":
         headers = {
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": "https://v0-bastet-lp.vercel.app",
             "Access-Control-Allow-Methods": "POST",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
             "Access-Control-Max-Age": "3600",
         }
         return ("", 204, headers)
 
+    ALLOWED_ORIGINS = ["https://v0-bastet-lp.vercel.app"]
+    origin = request.headers.get("Origin", "")
+    if origin not in ALLOWED_ORIGINS:
+        return Response(
+            json.dumps({"error": "Forbidden"}),
+            status=403,
+            headers={
+                "Content-Type": "application/json",
+            }
+        )
+
+    _cors = {"Access-Control-Allow-Origin": "https://v0-bastet-lp.vercel.app"}
+
     if request.method != "POST":
-        return jsonify({"error": "Method not allowed"}), 405
+        return jsonify({"error": "Method not allowed"}), 405, _cors
 
     try:
         body = request.get_json(silent=True)
         if not body:
-            return jsonify({"error": "Invalid JSON body"}), 400
+            return jsonify({"error": "Invalid JSON body"}), 400, _cors
 
         provider = body.get("provider")
         model = body.get("model", "")
         target_lang = body.get("targetLang") or body.get("target_lang", "日本語")
 
         if not provider:
-            return jsonify({"error": "provider is required"}), 400
+            return jsonify({"error": "provider is required"}), 400, _cors
 
         # リクエスト種別で分岐
         if "image" in body:
@@ -373,9 +386,9 @@ def inference(request: Request):
             text_blocks = body.get("text_blocks")
             result, status = _handle_text_translation_request(text_blocks, target_lang, model, provider)
         else:
-            return jsonify({"error": "Either 'image' or 'text_blocks' is required"}), 400
+            return jsonify({"error": "Either 'image' or 'text_blocks' is required"}), 400, _cors
 
-        return jsonify(result), status
+        return jsonify(result), status, _cors
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500, _cors

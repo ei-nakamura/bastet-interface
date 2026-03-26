@@ -177,6 +177,7 @@ class TestInferenceEntrypoint:
         request = MagicMock()
         request.method = "POST"
         request.get_json.return_value = body
+        request.headers = {"Origin": "https://v0-bastet-lp.vercel.app"}
         return request
 
     @patch("main._handle_image_request")
@@ -250,3 +251,88 @@ class TestInferenceEntrypoint:
         with app.app_context():
             response = inference(request)
         assert response[1] == 400
+
+
+# ---------- CORS & Origin検証テスト ----------
+
+
+class TestCors:
+    """CORS設定とOrigin検証のテスト。"""
+
+    def _make_options_request(self):
+        request = MagicMock()
+        request.method = "OPTIONS"
+        request.headers = {}
+        return request
+
+    def _make_post_request(self, origin, body=None):
+        request = MagicMock()
+        request.method = "POST"
+        request.get_json.return_value = body or {}
+        request.headers = {"Origin": origin} if origin is not None else {}
+        return request
+
+    def test_options_returns_allowed_origin(self):
+        """OPTIONSレスポンスのAccess-Control-Allow-Originがhttps://v0-bastet-lp.vercel.appであること。"""
+        from main import inference
+
+        request = self._make_options_request()
+        response = inference(request)
+        assert response[1] == 204
+        assert response[2]["Access-Control-Allow-Origin"] == "https://v0-bastet-lp.vercel.app"
+
+    def test_allowed_origin_is_not_403(self):
+        """許可OriginからのPOSTリクエストが403以外のレスポンスを返すこと。"""
+        from flask import Flask
+        from main import inference
+
+        request = self._make_post_request(
+            origin="https://v0-bastet-lp.vercel.app",
+            body={"provider": "vertex-claude"},
+        )
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response[1] != 403
+
+    def test_disallowed_origin_returns_403(self):
+        """拒否OriginからのリクエストにHTTP 403が返ること。"""
+        from flask import Flask
+        from main import inference
+
+        request = self._make_post_request(origin="https://evil.com", body={})
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response.status_code == 403
+
+    def test_no_origin_returns_403(self):
+        """OriginヘッダなしのリクエストにHTTP 403が返ること。"""
+        from flask import Flask
+        from main import inference
+
+        request = self._make_post_request(origin=None, body={})
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response.status_code == 403
+
+    @patch("main._handle_text_translation_request")
+    def test_post_response_has_cors_header(self, mock_handler):
+        """POSTレスポンスにAccess-Control-Allow-Originヘッダが付与されていること。"""
+        from flask import Flask
+        from main import inference
+
+        mock_handler.return_value = ({"text_blocks": []}, 200)
+        request = self._make_post_request(
+            origin="https://v0-bastet-lp.vercel.app",
+            body={
+                "provider": "vertex-claude",
+                "model": "claude-sonnet-4-20250514",
+                "text_blocks": [{"id": 1, "content": "Hello"}],
+            },
+        )
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response[2]["Access-Control-Allow-Origin"] == "https://v0-bastet-lp.vercel.app"
