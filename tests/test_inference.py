@@ -265,11 +265,16 @@ class TestCors:
         request.headers = {}
         return request
 
-    def _make_post_request(self, origin, body=None):
+    def _make_post_request(self, origin, body=None, auth=None):
         request = MagicMock()
         request.method = "POST"
         request.get_json.return_value = body or {}
-        request.headers = {"Origin": origin} if origin is not None else {}
+        headers = {}
+        if origin is not None:
+            headers["Origin"] = origin
+        if auth is not None:
+            headers["Authorization"] = auth
+        request.headers = headers
         return request
 
     def test_options_returns_allowed_origin(self):
@@ -316,6 +321,36 @@ class TestCors:
         with app.app_context():
             response = inference(request)
         assert response.status_code == 403
+
+    def test_bearer_token_without_origin_is_not_403(self):
+        """Authorization Bearerトークン付き・Originなしのリクエストが403以外を返すこと（サーバー間通信）。"""
+        from flask import Flask
+        from main import inference
+
+        request = self._make_post_request(
+            origin=None,
+            body={"provider": "vertex-claude"},
+            auth="Bearer dummy-oidc-token",
+        )
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response[1] != 403
+
+    def test_bearer_token_with_disallowed_origin_is_not_403(self):
+        """Authorization Bearerトークン付き・不正Origin付きのリクエストが403以外を返すこと（認証優先）。"""
+        from flask import Flask
+        from main import inference
+
+        request = self._make_post_request(
+            origin="https://evil.com",
+            body={"provider": "vertex-claude"},
+            auth="Bearer dummy-oidc-token",
+        )
+        app = Flask(__name__)
+        with app.app_context():
+            response = inference(request)
+        assert response[1] != 403
 
     @patch("main._handle_text_translation_request")
     def test_post_response_has_cors_header(self, mock_handler):
