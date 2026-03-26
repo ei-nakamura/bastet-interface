@@ -77,6 +77,34 @@ class TestBuildTranslatePrompt:
         assert "translation" in prompt
 
 
+# ---------- normalize_bbox ----------
+
+class TestNormalizeBbox:
+    """normalize_bbox 関数のテスト。"""
+
+    def test_array_to_object(self):
+        """配列 [x, y, w, h] がオブジェクトに変換されること。"""
+        from main import normalize_bbox
+
+        result = normalize_bbox([0.1, 0.2, 0.8, 0.3])
+        assert result == {"x": 0.1, "y": 0.2, "w": 0.8, "h": 0.3}
+
+    def test_object_passthrough(self):
+        """すでにオブジェクト形式の場合はそのまま返されること。"""
+        from main import normalize_bbox
+
+        bbox = {"x": 0.1, "y": 0.2, "w": 0.8, "h": 0.3}
+        result = normalize_bbox(bbox)
+        assert result == bbox
+
+    def test_invalid_array_passthrough(self):
+        """要素数が4以外の配列はそのまま返されること。"""
+        from main import normalize_bbox
+
+        result = normalize_bbox([0.1, 0.2])
+        assert result == [0.1, 0.2]
+
+
 # ---------- _parse_json_response ----------
 
 class TestParseJsonResponse:
@@ -146,6 +174,22 @@ class TestHandleImageRequest:
         assert status == 200
         assert "text_blocks" in result
         assert result["text_blocks"][0]["translation"] == "こんにちは"
+
+    @patch("main._call_vertex_claude")
+    def test_bbox_array_normalized_to_object(self, mock_claude):
+        """LLMがbboxを配列で返した場合、オブジェクト形式に変換されること。"""
+        mock_claude.return_value = (
+            {"text": '{"text_blocks": [{"id": 1, "type": "paragraph", "content": "Hello", "translation": "こんにちは", "bbox": [0.1, 0.2, 0.8, 0.3], "confidence": 0.9}]}'},
+            200,
+        )
+        img_data = base64.b64encode(b"fake-image").decode()
+        from main import _handle_image_request
+        result, status = _handle_image_request(
+            {"base64Data": img_data, "mediaType": "image/png"},
+            "日本語", 800, 600, "claude-sonnet-4-20250514", "vertex-claude"
+        )
+        assert status == 200
+        assert result["text_blocks"][0]["bbox"] == {"x": 0.1, "y": 0.2, "w": 0.8, "h": 0.3}
 
 
 # ---------- _handle_text_translation_request ----------

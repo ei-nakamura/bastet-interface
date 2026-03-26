@@ -241,11 +241,13 @@ def _build_detect_translate_prompt(target_lang: str, img_w: int, img_h: int) -> 
     - type: "title"|"heading"|"paragraph"|"list"|"table"|"caption"|"header"|"footer"|"other"
     - content: 原文テキスト内容（改行は半角スペースに置換。省略せず全文を含めること）
     - translation: {target_lang}に翻訳したテキスト
-    - bbox: 正規化された境界ボックス座標（画像の幅・高さを1.0とした0.0〜1.0の小数）
+    - bbox: 正規化された境界ボックス座標（オブジェクト形式で返すこと）
+      例: {{"x": 0.05, "y": 0.10, "w": 0.90, "h": 0.08}}
       - x: 左端の位置（0.0=左端、1.0=右端）
       - y: 上端の位置（0.0=上端、1.0=下端）
       - w: 幅（0.0〜1.0）
       - h: 高さ（0.0〜1.0）
+      ※配列形式 [x, y, w, h] は使用しないこと
     - confidence: 0.0〜1.0
 
     注意:
@@ -261,6 +263,13 @@ def _build_detect_translate_prompt(target_lang: str, img_w: int, img_h: int) -> 
 def _build_translate_prompt(blocks: list[dict], target_lang: str) -> str:
     blocks_text = "\n".join(f'[{b["id"]}] {b["content"]}' for b in blocks)
     return f"以下のテキストブロックを{target_lang}に翻訳してください。\n\n{blocks_text}\n\nJSON配列のみ出力（マークダウンの囲みや説明文は不要）:\n[ {{ \"id\": 1, \"translation\": \"翻訳文\" }}, ... ]"
+
+
+def normalize_bbox(bbox):
+    """bboxが配列の場合はオブジェクトに変換"""
+    if isinstance(bbox, list) and len(bbox) == 4:
+        return {"x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
+    return bbox  # すでにオブジェクト形式ならそのまま
 
 
 def _parse_json_response(text: str):
@@ -291,6 +300,9 @@ def _handle_image_request(image: dict, target_lang: str, img_w: int, img_h: int,
     try:
         parsed = _parse_json_response(result["text"])
         text_blocks = parsed.get("text_blocks", parsed) if isinstance(parsed, dict) else parsed
+        for block in text_blocks:
+            if "bbox" in block:
+                block["bbox"] = normalize_bbox(block["bbox"])
         return {"text_blocks": text_blocks}, 200
     except (json.JSONDecodeError, KeyError, TypeError):
         return {"error": "Failed to parse LLM response", "raw": result.get("text", "")}, 500
