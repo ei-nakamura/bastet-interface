@@ -11,6 +11,49 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# ---------- ALLOWED_GEMINI_MODELS ----------
+
+class TestAllowedGeminiModels:
+    """ALLOWED_GEMINI_MODELS / DEFAULT_GEMINI_MODEL のリストに関するテスト。
+
+    Vertex AIで利用可能なGeminiモデル（2026年4月時点）を網羅していることを検証する。
+    """
+
+    def test_default_is_stable_flash(self):
+        """デフォルトモデルは安定版(GA)のgemini-2.5-flashであること。"""
+        from main import ALLOWED_GEMINI_MODELS, DEFAULT_GEMINI_MODEL
+
+        assert DEFAULT_GEMINI_MODEL == "gemini-2.5-flash"
+        assert DEFAULT_GEMINI_MODEL in ALLOWED_GEMINI_MODELS
+
+    def test_stable_ga_models_included(self):
+        """Gemini 2.5系の安定版モデル（Pro/Flash/Flash-Lite）がすべて含まれること。"""
+        from main import ALLOWED_GEMINI_MODELS
+
+        assert "gemini-2.5-pro" in ALLOWED_GEMINI_MODELS
+        assert "gemini-2.5-flash" in ALLOWED_GEMINI_MODELS
+        assert "gemini-2.5-flash-lite" in ALLOWED_GEMINI_MODELS
+
+    def test_gemini_3_preview_models_included(self):
+        """Gemini 3.x系のpreviewモデルが含まれること。
+
+        - gemini-3.1-pro-preview: Gemini 3.1 Pro（2026年2月19日Preview公開、gemini-3-pro-previewの後継）
+        - gemini-3-flash-preview: Gemini 3 Flash（Preview、マルチモーダル）
+        - gemini-3.1-flash-lite-preview: Gemini 3.1 Flash-Lite（Preview、低コスト/低レイテンシ）
+        """
+        from main import ALLOWED_GEMINI_MODELS
+
+        assert "gemini-3.1-pro-preview" in ALLOWED_GEMINI_MODELS
+        assert "gemini-3-flash-preview" in ALLOWED_GEMINI_MODELS
+        assert "gemini-3.1-flash-lite-preview" in ALLOWED_GEMINI_MODELS
+
+    def test_discontinued_model_not_included(self):
+        """廃止済みモデル（gemini-3-pro-preview: 2026年3月26日廃止）が含まれていないこと。"""
+        from main import ALLOWED_GEMINI_MODELS
+
+        assert "gemini-3-pro-preview" not in ALLOWED_GEMINI_MODELS
+
+
 # ---------- _build_detect_translate_prompt ----------
 
 class TestBuildDetectTranslatePrompt:

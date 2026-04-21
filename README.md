@@ -139,11 +139,18 @@ Content-Type: application/json
 
 #### Gemini モデル（vertex-gemini）
 
-| モデルID | デフォルト |
-|---------|-----------|
-| `gemini-2.5-flash` | ✅ |
-| `gemini-2.5-pro` | |
-| `gemini-2.5-flash-lite` | |
+| モデルID | 段階 | デフォルト |
+|---------|------|-----------|
+| `gemini-2.5-flash` | GA | ✅ |
+| `gemini-2.5-pro` | GA | |
+| `gemini-2.5-flash-lite` | GA | |
+| `gemini-3.1-pro-preview` | Preview | |
+| `gemini-3-flash-preview` | Preview | |
+| `gemini-3.1-flash-lite-preview` | Preview | |
+
+> **注意**: Gemini 3.x系のPreviewモデルはグローバルエンドポイントでのみ提供される。
+> これらのモデルを利用する場合は `GOOGLE_CLOUD_LOCATION=global` を設定すること。
+> また `gemini-3-pro-preview` は2026年3月26日に廃止済み（`gemini-3.1-pro-preview` へ移行）。
 
 モデル未指定または未知のモデル名はデフォルトモデルにフォールバックする。
 
