@@ -11,6 +11,63 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# ---------- ALLOWED_CLAUDE_MODELS ----------
+
+class TestAllowedClaudeModels:
+    """ALLOWED_CLAUDE_MODELS / DEFAULT_CLAUDE_MODEL のリストに関するテスト。
+
+    Vertex AIで利用可能なAnthropic Claudeモデル（2026年4月時点）を網羅していることを検証する。
+    Vertex AIのモデルIDは `@日付` 形式、最新世代（Opus 4.7 / Sonnet 4.6 / Opus 4.6）は
+    日付サフィックス不要である点に注意する。
+    """
+
+    def test_default_is_sonnet_4_6(self):
+        """デフォルトモデルは最新GA版のclaude-sonnet-4-6（Vertex AI ID形式）であること。"""
+        from main import ALLOWED_CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL
+
+        assert DEFAULT_CLAUDE_MODEL == "claude-sonnet-4-6"
+        assert DEFAULT_CLAUDE_MODEL in ALLOWED_CLAUDE_MODELS
+
+    def test_latest_ga_models_included(self):
+        """最新GAモデル（Opus 4.7 / Sonnet 4.6 / Haiku 4.5）が含まれること。"""
+        from main import ALLOWED_CLAUDE_MODELS
+
+        assert "claude-opus-4-7" in ALLOWED_CLAUDE_MODELS
+        assert "claude-sonnet-4-6" in ALLOWED_CLAUDE_MODELS
+        assert "claude-haiku-4-5@20251001" in ALLOWED_CLAUDE_MODELS
+
+    def test_legacy_models_included(self):
+        """Legacyモデル（利用可能、非推奨ではない）が含まれること。"""
+        from main import ALLOWED_CLAUDE_MODELS
+
+        assert "claude-opus-4-6" in ALLOWED_CLAUDE_MODELS
+        assert "claude-sonnet-4-5@20250929" in ALLOWED_CLAUDE_MODELS
+        assert "claude-opus-4-5@20251101" in ALLOWED_CLAUDE_MODELS
+        assert "claude-opus-4-1@20250805" in ALLOWED_CLAUDE_MODELS
+
+    def test_deprecated_models_included(self):
+        """非推奨モデル（2026-06-15引退予定）も利用可能期間中は含めること。"""
+        from main import ALLOWED_CLAUDE_MODELS
+
+        assert "claude-sonnet-4@20250514" in ALLOWED_CLAUDE_MODELS
+        assert "claude-opus-4@20250514" in ALLOWED_CLAUDE_MODELS
+
+    def test_incorrect_dash_date_format_not_used(self):
+        """Vertex AIでは無効なdash日付形式（claude-XXX-YYYYMMDD）が含まれていないこと。
+
+        Vertex AIのモデルIDは `@日付` 区切りであり、
+        例えば `claude-sonnet-4-20250514` は無効で、正しくは `claude-sonnet-4@20250514`。
+        """
+        from main import ALLOWED_CLAUDE_MODELS
+
+        assert "claude-sonnet-4-20250514" not in ALLOWED_CLAUDE_MODELS
+        assert "claude-opus-4-20250514" not in ALLOWED_CLAUDE_MODELS
+        assert "claude-sonnet-4-6-20250514" not in ALLOWED_CLAUDE_MODELS
+        assert "claude-opus-4-6-20250822" not in ALLOWED_CLAUDE_MODELS
+        assert "claude-sonnet-4-5-20250514" not in ALLOWED_CLAUDE_MODELS
+        assert "claude-haiku-4-5-20251001" not in ALLOWED_CLAUDE_MODELS
+
+
 # ---------- ALLOWED_GEMINI_MODELS ----------
 
 class TestAllowedGeminiModels:

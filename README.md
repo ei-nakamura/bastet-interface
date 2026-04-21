@@ -128,14 +128,20 @@ Content-Type: application/json
 
 #### Claude モデル（vertex-claude）
 
-| モデルID | デフォルト |
-|---------|-----------|
-| `claude-sonnet-4-6-20250514` | ✅ |
-| `claude-sonnet-4-20250514` | |
-| `claude-opus-4-6-20250822` | |
-| `claude-opus-4-20250514` | |
-| `claude-sonnet-4-5-20250514` | |
-| `claude-haiku-4-5-20251001` | |
+Vertex AIのモデルIDは `@日付` 形式（Claude API公式ID `-日付` 形式とは異なる）。
+最新世代（Opus 4.7 / Sonnet 4.6 / Opus 4.6）は日付サフィックス不要。
+
+| モデルID | 段階 | デフォルト |
+|---------|------|-----------|
+| `claude-opus-4-7` | GA（最新） | |
+| `claude-sonnet-4-6` | GA（最新） | ✅ |
+| `claude-haiku-4-5@20251001` | GA（最新） | |
+| `claude-opus-4-6` | Legacy | |
+| `claude-sonnet-4-5@20250929` | Legacy | |
+| `claude-opus-4-5@20251101` | Legacy | |
+| `claude-opus-4-1@20250805` | Legacy | |
+| `claude-sonnet-4@20250514` | Deprecated（2026-06-15 引退） | |
+| `claude-opus-4@20250514` | Deprecated（2026-06-15 引退） | |
 
 #### Gemini モデル（vertex-gemini）
 
