@@ -20,22 +20,35 @@ from flask import Request, Response, jsonify
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 # Vertex AIのリージョン（デフォルト: us-central1）
 LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-# 許可するClaudeモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ）
+# 許可するClaudeモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ、2026年4月時点）
+# 注意: Vertex AIのモデルIDは `@日付` 形式（Claude APIの `-日付` 形式とは異なる）。
+# 最新世代（Opus 4.7 / Sonnet 4.6 / Opus 4.6）は日付サフィックス不要。
 ALLOWED_CLAUDE_MODELS = {
-    "claude-sonnet-4-20250514",
-    "claude-sonnet-4-6-20250514",
-    "claude-opus-4-20250514",
-    "claude-opus-4-6-20250822",
-    "claude-sonnet-4-5-20250514",
-    "claude-haiku-4-5-20251001",
+    # 最新GA
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5@20251001",
+    # Legacy（引き続き利用可能）
+    "claude-opus-4-6",
+    "claude-sonnet-4-5@20250929",
+    "claude-opus-4-5@20251101",
+    "claude-opus-4-1@20250805",
+    # Deprecated（2026-06-15 引退予定）
+    "claude-sonnet-4@20250514",
+    "claude-opus-4@20250514",
 }
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6-20250514"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 
-# 許可するGeminiモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ）
+# 許可するGeminiモデルの一覧（Vertex AI経由でアクセス可能なモデルのみ、2026年4月時点）
 ALLOWED_GEMINI_MODELS = {
+    # Gemini 2.5系（GA）
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    # Gemini 3.x系（Preview、グローバルエンドポイントのみ）
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
 }
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 

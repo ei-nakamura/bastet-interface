@@ -128,22 +128,35 @@ Content-Type: application/json
 
 #### Claude モデル（vertex-claude）
 
-| モデルID | デフォルト |
-|---------|-----------|
-| `claude-sonnet-4-6-20250514` | ✅ |
-| `claude-sonnet-4-20250514` | |
-| `claude-opus-4-6-20250822` | |
-| `claude-opus-4-20250514` | |
-| `claude-sonnet-4-5-20250514` | |
-| `claude-haiku-4-5-20251001` | |
+Vertex AIのモデルIDは `@日付` 形式（Claude API公式ID `-日付` 形式とは異なる）。
+最新世代（Opus 4.7 / Sonnet 4.6 / Opus 4.6）は日付サフィックス不要。
+
+| モデルID | 段階 | デフォルト |
+|---------|------|-----------|
+| `claude-opus-4-7` | GA（最新） | |
+| `claude-sonnet-4-6` | GA（最新） | ✅ |
+| `claude-haiku-4-5@20251001` | GA（最新） | |
+| `claude-opus-4-6` | Legacy | |
+| `claude-sonnet-4-5@20250929` | Legacy | |
+| `claude-opus-4-5@20251101` | Legacy | |
+| `claude-opus-4-1@20250805` | Legacy | |
+| `claude-sonnet-4@20250514` | Deprecated（2026-06-15 引退） | |
+| `claude-opus-4@20250514` | Deprecated（2026-06-15 引退） | |
 
 #### Gemini モデル（vertex-gemini）
 
-| モデルID | デフォルト |
-|---------|-----------|
-| `gemini-2.5-flash` | ✅ |
-| `gemini-2.5-pro` | |
-| `gemini-2.5-flash-lite` | |
+| モデルID | 段階 | デフォルト |
+|---------|------|-----------|
+| `gemini-2.5-flash` | GA | ✅ |
+| `gemini-2.5-pro` | GA | |
+| `gemini-2.5-flash-lite` | GA | |
+| `gemini-3.1-pro-preview` | Preview | |
+| `gemini-3-flash-preview` | Preview | |
+| `gemini-3.1-flash-lite-preview` | Preview | |
+
+> **注意**: Gemini 3.x系のPreviewモデルはグローバルエンドポイントでのみ提供される。
+> これらのモデルを利用する場合は `GOOGLE_CLOUD_LOCATION=global` を設定すること。
+> また `gemini-3-pro-preview` は2026年3月26日に廃止済み（`gemini-3.1-pro-preview` へ移行）。
 
 モデル未指定または未知のモデル名はデフォルトモデルにフォールバックする。
 
